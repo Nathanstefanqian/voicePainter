@@ -1,0 +1,35 @@
+# Dependencies
+node_modules/
+dist/
+.DS_Store
+
+# Env
+.env
+.env.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Other projects in this directory (exclude them as we only focus on voice-paint)
+Lumi-admin/
+Lumi-be/
+Lumi-fe/
+Lumi-ios/
+nathanq-site/
+resume/
+yuque-mcp/
+docs/
+scripts/
+.cursor/
+.vscode/
+# package.json
+# Rules.md
+# README.md
+# DEPLOY_GUIDE_DEMO.md
+/package.json
+/Rules.md
+/README.md
+/DEPLOY_GUIDE_DEMO.md
