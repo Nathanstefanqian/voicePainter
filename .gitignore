@@ -27,9 +27,7 @@ scripts/
 .vscode/
 # package.json
 # Rules.md
-# README.md
 # DEPLOY_GUIDE_DEMO.md
 /package.json
 /Rules.md
-/README.md
 /DEPLOY_GUIDE_DEMO.md
