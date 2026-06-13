@@ -90,7 +90,6 @@ onMounted(() => {
 watch(() => drawStore.chatMessages.length, (newLen, oldLen) => {
   // 如果是新增消息，判断是否是新任务开始
   if (newLen > oldLen) {
-    const lastMsg = drawStore.chatMessages[newLen - 1]
     const isFirstActive = drawStore.chatMessages.filter(m => !(m as any).isArchived).length === 1
     
     if (isFirstActive) {
@@ -100,26 +99,6 @@ watch(() => drawStore.chatMessages.length, (newLen, oldLen) => {
     }
   }
 })
-
-// 格式化时间
-function formatTime(dateStr: string) {
-  const date = new Date(dateStr)
-  const now = new Date()
-  const isToday = date.toDateString() === now.toDateString()
-  
-  if (isToday) {
-    return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-  }
-  return date.toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
-}
-
-// 判断是否显示时间分割线（第一条消息，或与上一条消息间隔超过 5 分钟）
-function shouldShowDivider(index: number) {
-  if (index === 0) return true
-  const curr = new Date(drawStore.chatMessages[index].createdAt).getTime()
-  const prev = new Date(drawStore.chatMessages[index - 1].createdAt).getTime()
-  return curr - prev > 5 * 60 * 1000
-}
 </script>
 
 <template>
