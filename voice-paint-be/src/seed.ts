@@ -20,14 +20,12 @@ async function seed() {
     return;
   }
 
-  const salt = await bcrypt.genSalt(12);
-  const hashedPassword = await bcrypt.hash(password, salt);
-
+  // 直接使用明文密码，由 UserSchema 的 pre-save 钩子负责加密
   await userModel.create({
     userId: uuidv4(),
     username,
     email,
-    password: hashedPassword,
+    password, // 使用明文
     role: "user",
     isActive: true,
     usageStats: {

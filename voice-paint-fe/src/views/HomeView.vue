@@ -31,8 +31,19 @@ function toggleFullVoiceMode() {
   drawStore.setFullVoiceMode(newMode)
   showToast(newMode ? '全语音模式已开启' : '全语音模式已关闭', 'info')
   
-  if (newMode && drawStore.status === 'idle') {
-    handleStartRecording()
+  if (newMode) {
+    if (drawStore.status === 'idle') {
+      handleStartRecording()
+    }
+  } else {
+    // 关闭模式时，如果正在录音，立即强制停止，且不处理任何后续逻辑
+    if (isRecording.value) {
+      handleStopRecording(true)
+    }
+    // 强制重置状态，防止在识别中或思考中切换模式导致状态卡死
+    if (drawStore.status === 'recording' || drawStore.status === 'recognizing' || drawStore.status === 'thinking') {
+      drawStore.setStatus('idle')
+    }
   }
 }
 
@@ -121,14 +132,6 @@ async function handleStartRecording() {
   }
 }
 
-async function handleToggleRecording() {
-  if (isRecording.value) {
-    await handleStopRecording()
-  } else {
-    await handleStartRecording()
-  }
-}
-
 async function handleSelectOption(option: string) {
   if (drawStore.status !== 'idle') return
   
@@ -156,7 +159,7 @@ async function processUserIntent(text: string) {
     })
 
     // 如果是绘图动作，立即切换到 generating 状态
-    const isDrawingAction = ['new', 'iterate', 'adjust'].includes(intentResult.action)
+    const isDrawingAction = intentResult.action === 'new' || intentResult.action === 'iterate' || intentResult.action === 'adjust'
     if (isDrawingAction) {
       drawStore.setStatus('generating')
     }
@@ -299,12 +302,17 @@ async function processUserIntent(text: string) {
   }
 }
 
-async function handleStopRecording() {
+async function handleStopRecording(silent: boolean | MouseEvent = false) {
   if (!isRecording.value) return
   isRecording.value = false
 
   const finalDuration = drawStore.duration
   const blob = await stopRecording()
+
+  if (silent === true) {
+    drawStore.setStatus('idle')
+    return
+  }
 
   if (finalDuration < 1500) {
     drawStore.setStatus('idle')
@@ -516,7 +524,7 @@ async function handleStopRecording() {
 
     <!-- Center: Image display -->
     <div class="h-[40vh] lg:h-auto lg:flex-1 p-3 lg:p-8 overflow-hidden bg-gray-50/50 dark:bg-zinc-950/50 flex flex-col min-w-0">
-      <ImageCanvas @request-start-recording="handleToggleRecording" />
+      <ImageCanvas @request-start-recording="handleStartRecording" />
     </div>
 
     <!-- Right panel: History -->
