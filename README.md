@@ -3,7 +3,7 @@
 > 🎙️ 纯语音驱动的 AI 绘画助手 · 七牛云 AI 应用创新挑战赛 · 第二赛道「AI 创意应用」参赛作品
 >
 > 作品链接：[github.com/Nathanstefanqian/voicePainter](https://github.com/Nathanstefanqian/voicePainter)
-> 体验地址：*`https://voice-painter.nathanq.com`（部署后回填）*
+> 体验地址：[https://paint.nathanq.site](https://paint.nathanq.site)
 
 ---
 
