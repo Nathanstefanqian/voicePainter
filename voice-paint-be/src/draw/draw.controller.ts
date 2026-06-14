@@ -66,4 +66,12 @@ export class DrawController {
   ) {
     return this.drawService.deleteImage(userId, imageId);
   }
+
+  @Post("batch-delete")
+  async batchDeleteImages(
+    @CurrentUser("sub") userId: string,
+    @Body("imageIds") imageIds: string[],
+  ) {
+    return await this.drawService.batchDeleteImages(userId, imageIds);
+  }
 }

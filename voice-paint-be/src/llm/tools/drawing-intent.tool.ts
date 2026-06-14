@@ -12,6 +12,7 @@ export const DrawingIntentSchema = z.object({
       "select",
       "exit_voice_mode",
       "chat",
+      "visual_chat",
       "clarify",
       "unknown",
     ])

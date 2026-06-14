@@ -1,11 +1,12 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { ConfigService } from "@nestjs/config";
-import axios, { AxiosError } from "axios";
+import axios, { AxiosError, AxiosRequestConfig, AxiosResponse } from "axios";
 import { DrawingIntent } from "./tools/drawing-intent.tool";
 import {
   INTENT_SYSTEM_PROMPT,
   CURRENT_IMAGE_CONTEXT,
 } from "./prompts/intent-recognition";
+import { MODEL_CONFIGS } from "./config/models.config";
 
 @Injectable()
 export class LLMService {
@@ -14,13 +15,46 @@ export class LLMService {
 
   constructor(private configService: ConfigService) {}
 
+  private async postWithRetry<T>(
+    url: string,
+    data: any,
+    config: AxiosRequestConfig,
+    retries = 2,
+    delay = 1000,
+  ): Promise<AxiosResponse<T>> {
+    try {
+      return await axios.post<T>(url, data, config);
+    } catch (error: unknown) {
+      if (retries > 0 && axios.isAxiosError(error)) {
+        const status = error.response?.status;
+        const errData = error.response?.data as Record<string, any>;
+        // 503 (SiliconFlow 繁忙) 或特定的系统繁忙错误码 50508
+        if (status === 503 || (errData && errData.code === 50508)) {
+          this.logger.warn(
+            `[LLM] API Busy (503/50508), retrying in ${delay}ms... (${retries} retries left)`,
+          );
+          await new Promise((resolve) => setTimeout(resolve, delay));
+          return this.postWithRetry<T>(
+            url,
+            data,
+            config,
+            retries - 1,
+            delay * 2,
+          );
+        }
+      }
+      throw error;
+    }
+  }
+
   async recognizeIntent(
     asrText: string,
     currentImageUrl?: string,
     recentContext?: Array<{ role: string; content: string }>,
   ): Promise<DrawingIntent> {
+    this.logger.log(`[LLM] recognizeIntent starting for text: "${asrText}"`);
     const apiKey = this.configService.get<string>("siliconFlow.apiKey");
-    const model = "deepseek-ai/DeepSeek-V3";
+    const model = MODEL_CONFIGS["deepseek-v3"].model;
 
     const imageContext = currentImageUrl
       ? CURRENT_IMAGE_CONTEXT.withImage(currentImageUrl)
@@ -44,7 +78,7 @@ export class LLMService {
     messages.push({ role: "user", content: asrText });
 
     try {
-      const response = await axios.post<{
+      const response = await this.postWithRetry<{
         choices: Array<{
           message: {
             tool_calls: Array<{
@@ -81,6 +115,7 @@ export class LLMService {
                         "delete",
                         "select",
                         "chat",
+                        "visual_chat",
                         "clarify",
                         "unknown",
                       ],
@@ -189,13 +224,156 @@ export class LLMService {
       return args;
     } catch (error) {
       if (axios.isAxiosError(error)) {
+        const err = error as AxiosError<any>;
         this.logger.error(
-          `[LLM] API Error: ${error.response?.status} - ${JSON.stringify(error.response?.data)}`,
+          `[LLM] API Error: ${err.response?.status} - ${JSON.stringify(err.response?.data)}`,
         );
       } else {
         this.logger.error(`[LLM] Error: ${(error as Error).message}`);
       }
       return this.createUnknownIntent("LLM 调用失败");
+    }
+  }
+
+  async summarizeImageTitle(prompt: string): Promise<string> {
+    const model = MODEL_CONFIGS["deepseek-v3"].model;
+    const apiKey = this.configService.get<string>("siliconFlow.apiKey");
+
+    if (!apiKey) return prompt.substring(0, 10);
+
+    try {
+      const response = await axios.post<{
+        choices: Array<{ message: { content: string } }>;
+      }>(
+        "https://api.siliconflow.cn/v1/chat/completions",
+        {
+          model,
+          messages: [
+            {
+              role: "system",
+              content:
+                "你是一个起名专家。请根据提供的绘图描述词，总结出一个极其简短的中文标题。要求：6-10个字，优美、准确、有画面感。直接返回标题，不要有任何解释。",
+            },
+            { role: "user", content: `描述词：${prompt}` },
+          ],
+          max_tokens: 50,
+          temperature: 0.7,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+        },
+      );
+
+      const title = response.data.choices?.[0]?.message?.content?.trim() || "";
+      const cleanTitle = title.replace(/[《》【】\[\]"']/g, ""); // 去掉可能的标点
+      return cleanTitle || prompt.substring(0, 10);
+    } catch (error) {
+      this.logger.error(
+        `[LLM] Summarize Title Failed: ${(error as Error).message}`,
+      );
+      return prompt.substring(0, 10);
+    }
+  }
+
+  async visionChat(
+    asrText: string,
+    imageUrl: string,
+    context?: Array<{ role: string; content: string }>,
+  ): Promise<string> {
+    const model = MODEL_CONFIGS["qwen-vision"].model;
+    const apiKey = this.configService.get<string>("siliconFlow.apiKey");
+
+    this.logger.log(
+      `[LLM] visionChat starting for model: ${model}, image: ${imageUrl}`,
+    );
+
+    if (!apiKey) {
+      this.logger.error("[LLM] siliconFlow.apiKey is missing");
+      return "抱歉，服务器未配置视觉模型 API Key。";
+    }
+
+    const messages: any[] = [
+      {
+        role: "system",
+        content:
+          "你是一个具有视觉能力的绘画助手，负责对用户当前生成的图片进行分析、评价和建议。请用专业、客观且富有启发性的语言进行回答。你可以从画风、构图、色彩、光影等角度进行评价。如果用户有具体的改进要求，请结合图片给出建议。",
+      },
+    ];
+
+    if (context && context.length > 0) {
+      // 过滤掉包含复杂内容的消息，确保上下文格式正确
+      const safeContext = context.map((msg) => ({
+        role: msg.role,
+        content:
+          typeof msg.content === "string"
+            ? msg.content
+            : JSON.stringify(msg.content),
+      }));
+      messages.push(...safeContext);
+    }
+
+    messages.push({
+      role: "user",
+      content: [
+        { type: "text", text: asrText },
+        { type: "image_url", image_url: { url: imageUrl } },
+      ],
+    });
+
+    try {
+      this.logger.log(`[LLM] Sending request to SiliconFlow vision API...`);
+      const response = await this.postWithRetry<{
+        choices: Array<{
+          message: {
+            content: string;
+          };
+        }>;
+      }>(
+        `${this.baseUrl}/chat/completions`,
+        {
+          model,
+          messages,
+          temperature: MODEL_CONFIGS["qwen-vision"].temperature || 0.7,
+          max_tokens: MODEL_CONFIGS["qwen-vision"].maxTokens || 1024,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+            "Content-Type": "application/json",
+          },
+          timeout: 30000, // 30s timeout for vision models
+        },
+      );
+
+      const content = response.data.choices?.[0]?.message?.content;
+      if (!content) {
+        this.logger.warn("[LLM] Vision API returned empty content");
+        return "抱歉，视觉模型没有返回任何内容。";
+      }
+
+      this.logger.log(`[LLM] Vision API success, response length: ${content.length}`);
+      return content;
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error)) {
+        const err = error as AxiosError<{
+          message?: string;
+          error?: { message: string };
+        }>;
+        const errorMessage =
+          err.response?.data?.error?.message ||
+          err.response?.data?.message ||
+          err.message;
+        this.logger.error(
+          `[LLM] Vision API Error: ${err.response?.status} - ${errorMessage}`,
+        );
+        return `抱歉，视觉模型调用失败: ${errorMessage}`;
+      } else {
+        this.logger.error(`[LLM] Vision Error: ${(error as Error).message}`);
+        return "抱歉，视觉模型调用遇到未知错误。";
+      }
     }
   }
 
@@ -331,7 +509,8 @@ export class LLMService {
       return summary.trim();
     } catch (error) {
       const err = error as AxiosError;
-      const errorMsg = (err.response?.data as any)?.error?.message || err.message;
+      const errorResponse = err.response?.data as Record<string, any>;
+      const errorMsg = errorResponse?.error?.message || err.message;
       this.logger.error(`[LLM] Summarize Error: ${errorMsg}`);
 
       // 如果 DeepSeek-V3 繁忙，尝试备选模型
@@ -377,8 +556,9 @@ export class LLMService {
       );
 
       return response.data.choices?.[0]?.message?.content || "对话已归档";
-    } catch (e) {
-      this.logger.error(`[LLM] Backup Summarize Failed: ${(e as Error).message}`);
+    } catch (e: unknown) {
+      const error = e as Error;
+      this.logger.error(`[LLM] Backup Summarize Failed: ${error.message}`);
       return "对话已归档";
     }
   }

@@ -16,6 +16,7 @@ export interface UserDocument extends Document {
   };
   settings: {
     preferredModel?: string;
+    asrProvider?: "volc" | "tencent";
   };
   usageStats: {
     totalImages: number;
@@ -23,6 +24,8 @@ export interface UserDocument extends Document {
     dailyImageCount: number;
     lastResetAt: Date;
   };
+  createdAt: Date;
+  updatedAt: Date;
   comparePassword(password: string): Promise<boolean>;
 }
 
@@ -58,6 +61,7 @@ export class User {
   @Prop({ type: Object, default: {} })
   settings!: {
     preferredModel?: string;
+    asrProvider?: "volc" | "tencent";
   };
 
   @Prop({ type: Object, default: {} })

@@ -5,6 +5,7 @@ import {
   Body,
   Res,
   Req,
+  Patch,
   UseGuards,
   HttpCode,
   HttpStatus,
@@ -13,6 +14,7 @@ import type { Response, Request } from "express";
 import { AuthService } from "./auth.service";
 import { RegisterDto } from "./dto/register.dto";
 import { LoginDto } from "./dto/login.dto";
+import { UpdateProfileDto } from "./dto/update-profile.dto";
 import { JwtAuthGuard } from "./guards/jwt-auth.guard";
 import { JwtRefreshGuard } from "./guards/jwt-refresh.guard";
 import { CurrentUser } from "./decorators/current-user.decorator";
@@ -89,6 +91,15 @@ export class AuthController {
   @Get("profile")
   async getProfile(@CurrentUser("sub") userId: string) {
     return this.authService.getUserById(userId);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @Patch("profile")
+  async updateProfile(
+    @CurrentUser("sub") userId: string,
+    @Body() dto: UpdateProfileDto,
+  ) {
+    return this.authService.updateProfile(userId, dto);
   }
 
   @UseGuards(JwtAuthGuard)

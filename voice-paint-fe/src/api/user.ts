@@ -10,7 +10,7 @@ export async function updatePassword(data: { oldPassword: string; newPassword: s
   return res.data
 }
 
-export async function updateSettings(settings: { preferredModel?: string }) {
+export async function updateSettings(settings: { preferredModel?: string; asrProvider?: string }) {
   const res = await api.post('/auth/settings', settings)
   return res.data
 }

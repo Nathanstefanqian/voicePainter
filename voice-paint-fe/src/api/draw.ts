@@ -29,7 +29,7 @@ export interface ImageRecord {
 }
 
 export interface DrawingIntent {
-  action: 'new' | 'iterate' | 'adjust' | 'confirm' | 'undo' | 'chat' | 'clarify' | 'unknown'
+  action: 'new' | 'iterate' | 'adjust' | 'confirm' | 'undo' | 'chat' | 'visual_chat' | 'clarify' | 'unknown'
   prompt: string
   size?: string
   aspect_ratio?: string
@@ -69,5 +69,10 @@ export async function getImage(imageId: string): Promise<ImageRecord> {
 
 export async function deleteImage(imageId: string): Promise<{ message: string }> {
   const response = await api.delete<{ message: string }>(`/draw/${imageId}`)
+  return response.data
+}
+
+export async function batchDeleteImages(imageIds: string[]): Promise<{ message: string }> {
+  const response = await api.post<{ message: string }>('/draw/batch-delete', { imageIds })
   return response.data
 }

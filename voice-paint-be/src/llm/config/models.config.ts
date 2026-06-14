@@ -11,4 +11,10 @@ export const MODEL_CONFIGS = {
     maxTokens: 4096,
     useCase: "复杂多轮对话推理",
   },
+  "qwen-vision": {
+    model: "Qwen/Qwen3.6-35B-A3B",
+    temperature: 0.7,
+    maxTokens: 2048,
+    useCase: "视觉分析 / 多模态对话",
+  },
 };

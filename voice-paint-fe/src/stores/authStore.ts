@@ -9,6 +9,7 @@ export interface User {
   role: 'user' | 'admin'
   settings?: {
     preferredModel?: string
+    asrProvider?: 'volc' | 'tencent'
   }
 }
 

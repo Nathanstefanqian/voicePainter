@@ -118,7 +118,7 @@ export class DrawService {
         (await this.recognizeIntent(userId, asrText, currentImageUrl));
 
       this.logger.log(
-        `[DrawService] Intent action: ${intent.action}, turn: ${currentDraft.turnCount}/5`,
+        `[DrawService] Intent action recognized: ${intent.action}, user input: "${asrText}"`,
       );
 
       const isNewDrawing = intent.action === "new";
@@ -132,10 +132,20 @@ export class DrawService {
       const initialTurnCount = currentDraft.turnCount || 0;
 
       // 只有全新的绘图任务且非强制出图，才走 5 轮引导流程
-      if (isNewDrawing && !isForceDraw) {
+      // 或者当前已经在引导流程中（initialTurnCount > 0），且 LLM 返回了 new 或 clarify
+      const isContinuingGuidance =
+        initialTurnCount > 0 &&
+        (intent.action === "new" || intent.action === "clarify");
+
+      if ((isNewDrawing && !isForceDraw) || isContinuingGuidance) {
+        // 严格程序控制：只要是对话在继续，且没有强制出图，就增加进度
         currentDraft.turnCount = initialTurnCount + 1;
-        // 核心逻辑：按程序累加收集度，每轮 20%
-        currentDraft.completeness = Math.min(currentDraft.turnCount * 0.2, 1.0);
+        // 核心逻辑：按程序累加收集度，每轮 20%，且保证不回退
+        const newCompleteness = Math.min(currentDraft.turnCount * 0.2, 1.0);
+        currentDraft.completeness = Math.max(
+          currentDraft.completeness || 0,
+          newCompleteness,
+        );
         intent.completeness = currentDraft.completeness;
 
         // 强制规则：至少追问 5 轮
@@ -145,20 +155,6 @@ export class DrawService {
           );
           intent.action = "clarify";
 
-          // 如果是任务的第一步（从 0 变 1），且最终动作是 clarify，则触发归档
-          /* 暂时取消归档和总结机制
-          if (initialTurnCount === 0) {
-            // 获取即将被归档的历史消息作为总结上下文，只保留最近几条关键对话
-            const archiveContext = session.chatHistory
-              ? session.chatHistory
-                  .filter((msg) => !msg.isArchived)
-                  .slice(-6) // 取最近 6 条即可，避免过长干扰
-                  .map((msg) => ({
-                    role: msg.role,
-                    content: msg.content,
-                  }))
-              : [];
-          */
           // 如果大模型没有给出追问问题，后端进行差异化兜底
           if (!intent.clarify_question) {
             if (currentDraft.turnCount === 1) {
@@ -198,7 +194,12 @@ export class DrawService {
             } else {
               intent.clarify_question =
                 "为了达到完美的效果，我们再确认最后一个细节：您对背景环境有什么具体要求吗？";
-              intent.clarify_options = ["室内场景", "户外自然", "城市街道", "科幻背景"];
+              intent.clarify_options = [
+                "室内场景",
+                "户外自然",
+                "城市街道",
+                "科幻背景",
+              ];
             }
           }
         } else {
@@ -461,6 +462,63 @@ export class DrawService {
         };
       }
 
+      if (intent.action === "visual_chat") {
+        this.logger.log(`[DrawService] Processing visual chat for user: ${userId}`);
+
+        // 确保有图片可以看
+        if (!currentImageUrl) {
+          return {
+            action: "chat",
+            message: "抱歉，我现在还没看到图片，没法为您评价。您可以先画一张图，或者传一张图给我看。",
+            imageUrl: currentImageUrl,
+          };
+        }
+
+        const recentContext = session.chatHistory
+          ? session.chatHistory
+              .filter((msg) => !msg.isArchived)
+              .slice(-10)
+              .map((msg) => ({
+                role: msg.role,
+                content: msg.content,
+              }))
+          : [];
+
+        const visionResponse = await this.llmService.visionChat(
+          asrText,
+          currentImageUrl,
+          recentContext,
+        );
+
+        // 更新聊天历史
+        await this.sessionService.addChatToHistory(session.sessionId, [
+          {
+            role: "user",
+            content: asrText,
+            type: "text",
+            createdAt: new Date(),
+          },
+          {
+            role: "assistant",
+            content: visionResponse,
+            type: "text",
+            createdAt: new Date(),
+          },
+        ]);
+
+        return {
+          action: "visual_chat",
+          message: visionResponse,
+          imageUrl: currentImageUrl,
+          prompt: "",
+        };
+      }
+
+      if ((intent.action as string) === "unknown") {
+        this.logger.log(`[DrawService] Unknown intent, falling back to chat`);
+        intent.action = "chat";
+      }
+
       if (intent.action === "chat") {
         await this.sessionService.addChatToHistory(session.sessionId, [
           {
@@ -543,10 +601,13 @@ export class DrawService {
       const parentImageId =
         intent.action !== "new" ? latestImage?.imageId : undefined;
 
+      // Generate summary title (6-10 words)
+      const summaryTitle = await this.llmService.summarizeImageTitle(intent.prompt);
+
       const savedImage = await this.imageService.create({
         sessionId: session.sessionId,
         userId,
-        promptCn: asrText,
+        promptCn: summaryTitle, // Use summarized title as Chinese prompt/title
         promptEn: intent.prompt,
         imageUrl: rawResult.url,
         imageUrlOss: ossUrl,
@@ -661,5 +722,20 @@ export class DrawService {
     }
     await this.imageService.softDelete(imageId);
     return { message: "图片已删除" };
+  }
+
+  async batchDeleteImages(userId: string, imageIds: string[]) {
+    this.logger.log(`[DrawService] Batch deleting ${imageIds.length} images for user ${userId}`);
+    for (const imageId of imageIds) {
+      try {
+        const image = await this.imageService.findById(imageId);
+        if (image && image.userId === userId) {
+          await this.imageService.softDelete(imageId);
+        }
+      } catch (err) {
+        this.logger.error(`[DrawService] Failed to delete image ${imageId}: ${(err as Error).message}`);
+      }
+    }
+    return { message: `已成功删除 ${imageIds.length} 张图片记录` };
   }
 }

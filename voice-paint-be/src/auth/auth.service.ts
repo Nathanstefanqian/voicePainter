@@ -19,6 +19,7 @@ import {
 } from "./schemas";
 import { RegisterDto } from "./dto/register.dto";
 import { LoginDto } from "./dto/login.dto";
+import { UpdateProfileDto } from "./dto/update-profile.dto";
 import {
   JwtAccessPayload,
   JwtRefreshPayload,
@@ -68,7 +69,7 @@ export class AuthService {
       userId: user.userId,
       username: user.username,
       email: user.email,
-      createdAt: (user as any).createdAt,
+      createdAt: user.createdAt,
     };
   }
 
@@ -223,7 +224,7 @@ export class AuthService {
       email: user.email,
       role: user.role,
       settings: user.settings,
-      createdAt: (user as any).createdAt,
+      createdAt: user.createdAt,
     };
   }
 
@@ -231,8 +232,35 @@ export class AuthService {
     return this.userModel.findOne({ userId });
   }
 
-  async updateSettings(userId: string, settings: { preferredModel?: string }) {
+  async updateSettings(
+    userId: string,
+    settings: { preferredModel?: string; asrProvider?: "volc" | "tencent" },
+  ) {
     await this.userModel.updateOne({ userId }, { $set: { settings } });
     return { message: "设置已更新" };
+  }
+
+  async updateProfile(userId: string, dto: UpdateProfileDto) {
+    const user = await this.userModel.findOne({ userId });
+    if (!user) {
+      throw new UnauthorizedException("用户不存在");
+    }
+
+    if (dto.email && dto.email !== user.email) {
+      const existing = await this.userModel.findOne({ email: dto.email });
+      if (existing) {
+        throw new ConflictException("邮箱已被占用");
+      }
+    }
+
+    if (dto.username && dto.username !== user.username) {
+      const existing = await this.userModel.findOne({ username: dto.username });
+      if (existing) {
+        throw new ConflictException("用户名已被占用");
+      }
+    }
+
+    await this.userModel.updateOne({ userId }, { $set: dto });
+    return this.getUserById(userId);
   }
 }
