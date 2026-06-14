@@ -538,7 +538,7 @@ VoicePaint 的核心是 **"让 AI 绘图的入口消失"**：
 - ⭐ 给这个仓库点 Star
 - 🐛 提 Issue 反馈 bug
 - 🚀 提 PR 加入开发
-- 💬 加我微信 `*`（部署后回填）交流创意
+- 📬 在 GitHub Discussions 里聊聊你的想法
 
 > *Made with ❤️ & 🎙️ for the 七牛云 AI 应用创新挑战赛.*
 
