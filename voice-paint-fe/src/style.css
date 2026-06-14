@@ -1,0 +1,96 @@
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap');
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+:root {
+  --vp-primary: #8b5cf6;
+  --vp-primary-soft: #a78bfa;
+  --vp-primary-glow: rgba(139, 92, 246, 0.15);
+  --vp-surface: #ffffff;
+  --vp-surface-2: #f8fafc;
+  --vp-border: #e2e8f0;
+  --vp-text: #1e293b;
+  --vp-text-2: #64748b;
+  --vp-radius: 16px;
+  --vp-radius-sm: 10px;
+}
+
+html.dark {
+  --vp-surface: #09090b;
+  --vp-surface-2: #18181b;
+  --vp-border: #27272a;
+  --vp-text: #f4f4f5;
+  --vp-text-2: #a1a1aa;
+}
+
+html.forest {
+  --vp-primary: #10b981;
+  --vp-primary-soft: #34d399;
+  --vp-primary-glow: rgba(16, 185, 129, 0.15);
+  --vp-surface: #064e3b;
+  --vp-surface-2: #022c22;
+  --vp-border: #065f46;
+  --vp-text: #ecfdf5;
+  --vp-text-2: #a7f3d0;
+}
+
+body {
+  margin: 0;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color: var(--vp-text);
+  background: var(--vp-surface-2);
+}
+
+#app {
+  min-height: 100vh;
+}
+
+::selection {
+  background: var(--vp-primary-glow);
+  color: var(--vp-primary);
+}
+
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--vp-border);
+  border-radius: 99px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--vp-text-2);
+}
+
+/* Hide scrollbar for Chrome, Safari and Opera */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+
+/* Hide scrollbar for IE, Edge and Firefox */
+.no-scrollbar {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+input:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--vp-primary);
+  outline-offset: 2px;
+}
+
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
