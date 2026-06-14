@@ -17,8 +17,10 @@ export function useRecorder() {
 
   // VAD settings
   let silenceStart: number | null = null
-  const SILENCE_THRESHOLD = 0.05 // Adjust based on environment
-  const SILENCE_DURATION = 1200 // 1.2s of silence to trigger stop
+  const SILENCE_THRESHOLD = 0.12 // 进一步提高音量下限过滤噪音 (原 0.08)
+  const SILENCE_DURATION = 1800 // 增加静音时长判定到 1.8s (原 1.2s)，防止说话停顿被切断
+  const MIN_SPEAKING_DURATION = 200 // 缩短确认时长到 0.2s (原 0.5s)，以支持“你好”等短句识别
+  let speakingStartTime: number | null = null
 
   const MAX_DURATION = 30_000
 
@@ -58,11 +60,17 @@ export function useRecorder() {
     const dataArray = new Uint8Array(analyser.frequencyBinCount)
     
     silenceStart = null
+    speakingStartTime = null
     isSpeaking.value = false
 
     function updateLevel() {
       if (!analyser) return
       analyser.getByteFrequencyData(dataArray)
+      
+      // Update audio data for visualization
+      const simplifiedData = Array.from(dataArray).filter((_, i) => i % 4 === 0).map(v => v / 255)
+      drawStore.setAudioData(simplifiedData)
+
       const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length
       const level = avg / 255
       audioLevel.value = level
@@ -71,15 +79,30 @@ export function useRecorder() {
       // VAD Logic
       if (drawStore.fullVoiceMode) {
         if (level > SILENCE_THRESHOLD) {
-          isSpeaking.value = true
+          if (speakingStartTime === null) {
+            speakingStartTime = Date.now()
+          }
+          
+          // 只有持续音量达标超过 MIN_SPEAKING_DURATION 才认为真正开始说话
+          if (!isSpeaking.value && Date.now() - speakingStartTime > MIN_SPEAKING_DURATION) {
+            isSpeaking.value = true
+          }
+          
           silenceStart = null
-        } else if (isSpeaking.value) {
-          if (silenceStart === null) {
-            silenceStart = Date.now()
-          } else if (Date.now() - silenceStart > SILENCE_DURATION) {
-            // Silence detected for long enough
-            if (options?.onSilence) {
-              options.onSilence()
+        } else {
+          // 如果音量不达标，重置说话开始时间
+          if (!isSpeaking.value) {
+            speakingStartTime = null
+          }
+          
+          if (isSpeaking.value) {
+            if (silenceStart === null) {
+              silenceStart = Date.now()
+            } else if (Date.now() - silenceStart > SILENCE_DURATION) {
+              // Silence detected for long enough
+              if (options?.onSilence) {
+                options.onSilence()
+              }
             }
           }
         }

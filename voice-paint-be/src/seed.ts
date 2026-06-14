@@ -9,34 +9,47 @@ async function seed() {
   const app = await NestFactory.createApplicationContext(AppModule);
   const userModel = app.get(getModelToken(User.name));
 
-  const email = "fungleo@example.com";
-  const password = "Password123!";
-  const username = "fungleo";
+  const demoUsers = [
+    {
+      email: "fungleo@example.com",
+      password: "Password123!",
+      username: "fungleo",
+      role: "admin"
+    },
+    {
+      email: "demo@example.com",
+      password: "DemoPassword123!",
+      username: "演示账号",
+      role: "user"
+    }
+  ];
 
-  const existing = await userModel.findOne({ email });
-  if (existing) {
-    console.log(`User ${email} already exists, skipping.`);
-    await app.close();
-    return;
+  for (const userData of demoUsers) {
+    const existing = await userModel.findOne({ email: userData.email });
+    if (existing) {
+      console.log(`User ${userData.email} already exists, updating password...`);
+      existing.password = userData.password;
+      await existing.save();
+      continue;
+    }
+
+    await userModel.create({
+      userId: uuidv4(),
+      username: userData.username,
+      email: userData.email,
+      password: userData.password,
+      role: userData.role,
+      isActive: true,
+      usageStats: {
+        totalImages: 0,
+        totalTokens: 0,
+        dailyImageCount: 0,
+        lastResetAt: new Date(),
+      },
+    });
+    console.log(`Created user: ${userData.email} / ${userData.password}`);
   }
 
-  // 直接使用明文密码，由 UserSchema 的 pre-save 钩子负责加密
-  await userModel.create({
-    userId: uuidv4(),
-    username,
-    email,
-    password, // 使用明文
-    role: "user",
-    isActive: true,
-    usageStats: {
-      totalImages: 0,
-      totalTokens: 0,
-      dailyImageCount: 0,
-      lastResetAt: new Date(),
-    },
-  });
-
-  console.log(`Created test user: ${email} / ${password}`);
   await app.close();
 }
 

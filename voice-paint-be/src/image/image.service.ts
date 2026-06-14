@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
-import { Model } from "mongoose";
+import { Model, Types } from "mongoose";
 import { v4 as uuidv4 } from "uuid";
 import {
   GeneratedImage,
@@ -36,11 +36,27 @@ export class ImageService {
   }
 
   async findById(imageId: string): Promise<GeneratedImageDocument | null> {
-    return this.imageModel.findOne({ imageId, isDeleted: false }).exec();
+    const query: Record<string, any> = { isDeleted: false };
+
+    if (Types.ObjectId.isValid(imageId)) {
+      query.$or = [{ imageId }, { _id: imageId }];
+    } else {
+      query.imageId = imageId;
+    }
+
+    return this.imageModel.findOne(query).exec();
   }
 
   async softDelete(imageId: string): Promise<void> {
-    await this.imageModel.updateOne({ imageId }, { isDeleted: true }).exec();
+    const query: Record<string, any> = {};
+
+    if (Types.ObjectId.isValid(imageId)) {
+      query.$or = [{ imageId }, { _id: imageId }];
+    } else {
+      query.imageId = imageId;
+    }
+
+    await this.imageModel.updateOne(query, { isDeleted: true }).exec();
   }
 
   async deleteByUrl(userId: string, imageUrl: string): Promise<void> {
@@ -65,14 +81,16 @@ export class ImageService {
     userId: string,
     sessionId?: string,
   ): Promise<GeneratedImageDocument[]> {
-    const query: any = { userId, isDeleted: false };
+    const query: Record<string, any> = { userId, isDeleted: false };
     if (sessionId) {
       query.sessionId = sessionId;
     }
     return this.imageModel.find(query).sort({ createdAt: -1 }).exec();
   }
 
-  async findLatestBySession(sessionId: string): Promise<GeneratedImageDocument | null> {
+  async findLatestBySession(
+    sessionId: string,
+  ): Promise<GeneratedImageDocument | null> {
     return this.imageModel
       .findOne({ sessionId, isDeleted: false })
       .sort({ createdAt: -1 })
