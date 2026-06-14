@@ -35,7 +35,7 @@
 
 | # | 亮点 | 工程落地 |
 |---|------|----------|
-| 🥇 | **真正"全语音"闭环**，支持"边说边改边选" | 录音 → ASR → LLM 意图识别 → 10 种 Action 派发 → Seedream 图像生成 → OSS 持久化 → 前端实时渲染，全链路单次 API 调用即可完成 |
+| 🥇 | **真正"全语音"闭环**，支持"边说边改边选" | 录音 → ASR → LLM 意图识别 → **11 种 Action 派发**（含视觉聊天）→ Seedream 图像生成 / Qwen-Vision 多模态评价 → OSS 持久化 → 前端实时渲染，全链路单次 API 调用即可完成 |
 | 🥈 | **带"渐进式引导"的意图理解** | 通过 `draftContext.turnCount` 5 轮机制 + LLM Completeness 评分，让用户在"直接出图"与"细致微调"之间自由切换；硬编码关键词（删除/撤销等）兜底，防止 LLM 把"删掉"误判为"聊天" |
 | 🥉 | **生产级工程化** | NestJS + Mongoose + 双 Token 鉴权 + Cookie 持久化 + 阿里云 OSS + PM2 部署，**不只是一个 demo，而是已经能 7×24 跑在公网上的 SaaS 雏形** |
 
@@ -109,7 +109,39 @@
 🔀 UI: 切换到历史索引 1
 ```
 
+#### 🎙️ 流程 D：视觉聊天（看图评价）
+
+```
+👤 录音: "这张图怎么样"          (visual_chat, 需画布有图)
+🧠 LLM: action=visual_chat, completeness=0
+👁️ Vision: 调用 Qwen-Vision 多模态模型分析 currentImageUrl
+   → 返回专业评价（画风 / 构图 / 色彩 / 光影）
+🟣 UI: 画布进入紫罗兰色 "looking" 状态（识别中视觉反馈）
+💬 ChatHistory: 评价以 Markdown 渲染显示在对话流
+```
+
+#### 🎙️ 流程 E：批量管理
+
+```
+👤 画廊: 长按图片进入多选模式
+👤 选择: 多张图片打勾
+🗑️ 操作: 点击「批量删除」 → POST /draw/batch-delete
+🗄️ 服务: 一次软删除多张，isDeleted=true（可恢复）
+🖼️ UI: 画廊实时刷新 + Toast 反馈
+```
+
 > *所有动作通过 LLM Tool Call 输出统一的 `DrawingIntent` schema，在后端 `DrawService.processDrawing()` 统一派发。*
+
+### 2.3 体验细节（"看不见但感受得到"的部分）
+
+| 能力 | 用户视角 | 实现要点 |
+|------|----------|----------|
+| **全语音模式** | 顶部紫色语音按钮，AI 回复完毕后**自动重新开始录音**，实现"说一句回应一句"的真·全语音体验 | `AppHeader.vue` 切换 `drawStore.fullVoiceMode`；`HomeView.vue` 监听 AI 完成事件自动 `startRecording()` |
+| **音效反馈** | 录音/识别/完成/点击/停止 5 个节点播放纯正弦波音效，可一键关闭 | 前端 `useAudio.ts`（Web Audio API）+ `drawStore.enableSound` 总开关；零音频文件依赖 |
+| **Markdown 渲染** | AI 文字回复自动按 Markdown 渲染（加粗、列表、段落） | 前端 `ChatHistory.vue` 集成 `marked`，自动去除"对话摘要："前缀 |
+| **图片标题自动摘要** | 出图时 LLM 自动把口语化中文描述总结为 6-10 字优美标题 | 后端 `llm.service.ts` 的 `summarizeImageTitle()`，在生成图后异步调用，失败回退到原 ASR 文本 |
+| **全屏模式** | 顶部全屏图标按钮，专注创作 | 前端 `AppHeader.vue` Fullscreen API |
+| **ASR 引擎持久化** | 腾讯云 / 火山引擎切换后写入用户账户，下次登录自动恢复 | 后端 `User.settings.asrProvider: 'volc' \| 'tencent'` 字段 + `updateSettings()` 路由 |
 
 ---
 
@@ -134,7 +166,7 @@
 │      │                                                               │
 │  LLMModule         DeepSeek-V3 (Tool Call) → DrawingIntent          │
 │      │                                                               │
-│  DrawModule        Seedream 5.0 图像生成 + 5 轮引导 + 10 种 Action 派发│
+│  DrawModule        Seedream 5.0 图像生成 + 5 轮引导 + 11 种 Action 派发│
 │      │                                                               │
 │  ImageModule       MongoDB 存储 + 软删除 + 历史查询                   │
 │      │                                                               │
@@ -183,8 +215,8 @@
 
 | # | 文件 | 看点 |
 |---|------|------|
-| 1 | `voice-paint-be/src/llm/prompts/intent-recognition.ts` | LLM 的 System Prompt 设计：10 种 Action 的语义边界、clarify 评分递增规则、chat 严禁触发追问的硬约束 |
-| 2 | `voice-paint-be/src/draw/draw.service.ts` | 核心业务编排：5 轮引导、10 种 Action 派发、硬编码关键词兜底、父子图关联 |
+| 1 | `voice-paint-be/src/llm/prompts/intent-recognition.ts` | LLM 的 System Prompt 设计：11 种 Action（含 visual_chat）的语义边界、clarify 评分递增规则、chat 严禁触发追问的硬约束 |
+| 2 | `voice-paint-be/src/draw/draw.service.ts` | 核心业务编排：5 轮引导、11 种 Action 派发（含 visionChat 多模态评价）、硬编码关键词兜底、父子图关联 |
 | 3 | `voice-paint-be/src/llm/llm.service.ts` | Function Call 封装、意图识别 + 任务摘要 + 对话压缩 + 备用模型 fallback |
 | 4 | `voice-paint-fe/src/composables/useRecorder.ts` | 前端录音核心：MediaRecorder + AnalyserNode + 静音检测（VAD）|
 | 5 | `voice-paint-fe/src/views/HomeView.vue` | 状态机：6 状态切换 + 全语音模式自启动 + 错误自愈 |
@@ -208,6 +240,9 @@ export const INTENT_SYSTEM_PROMPT = `你是 VoicePaint 的智能绘图助手。
 - **delete**: 删除当前图片。
 - **select**: 选择并打开画廊中的图片。
 - **chat**: 纯文本聊天。
+- **visual_chat**: 对当前生成的图片进行视觉评价 / 分析 / 描述。
+  - 触发条件：画布存在 `currentImageUrl`，且用户指令包含"评价一下"、"这张图怎么样"、"画得好吗"、"看看这张图"、"这是什么"等视觉相关提示词。
+  - 实际效果：调用 Qwen-Vision 多模态模型，从画风/构图/色彩/光影等角度给出专业评价，结果以 Markdown 渲染在对话流中。
 
 ## 追问策略 (Action: clarify)
 当触发 clarify 时，你需要：
@@ -471,8 +506,9 @@ npm run deploy:paint:fe   # rsync 到 nginx 静态目录
 | POST | `/auth/login` | Public | 登录，成功后 `Set-Cookie: refreshToken`（HttpOnly）|
 | POST | `/auth/refresh` | Cookie | 刷新 Access Token，Refresh Token 也会轮换 |
 | POST | `/auth/logout` | JWT | 撤销当前用户所有 Refresh Token |
-| GET  | `/auth/profile` | JWT | 获取当前用户信息（含 `settings.preferredModel`） |
-| POST | `/auth/settings` | JWT | 更新用户设置 `{ preferredModel }` |
+| GET  | `/auth/profile` | JWT | 获取当前用户信息（含 `settings.preferredModel`、`settings.asrProvider`） |
+| POST | `/auth/settings` | JWT | 更新用户设置 `{ preferredModel?, asrProvider? }`（asrProvider 持久化到账户） |
+| PATCH | `/auth/profile` | JWT | 修改用户名/邮箱（`{ username?, email? }`，唯一性校验，冲突返回 409） |
 
 ### 8.2 语音 `/voice`
 
@@ -495,6 +531,7 @@ npm run deploy:paint:fe   # rsync 到 nginx 静态目录
 | GET  | `/draw/history` | JWT | 历史图片（`?sessionId=` 可选） |
 | GET  | `/draw/:imageId` | JWT | 单张图详情 |
 | DELETE | `/draw/:imageId` | JWT | 软删除单张图 |
+| POST | `/draw/batch-delete` | JWT | 批量软删除 `{ imageIds: string[] }`，返回 `{ deletedCount }` |
 
 ### 8.4 会话 `/session`
 
