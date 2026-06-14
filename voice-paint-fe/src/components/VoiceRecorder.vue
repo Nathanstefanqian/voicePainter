@@ -16,7 +16,7 @@ const isMobile = computed(() => {
 })
 
 function handleButtonDown(_e: Event) {
-  if (drawStore.status === 'recognizing' || drawStore.status === 'thinking' || drawStore.status === 'generating') return
+  if (drawStore.status === 'recognizing' || drawStore.status === 'thinking' || drawStore.status === 'looking' || drawStore.status === 'generating') return
   
   // On mobile, start recording on touch/down
   if (isMobile.value) {
@@ -32,7 +32,7 @@ function handleButtonUp(_e: Event) {
 }
 
 function handleButtonClick() {
-  if (drawStore.status === 'recognizing' || drawStore.status === 'generating') return
+  if (drawStore.status === 'recognizing' || drawStore.status === 'thinking' || drawStore.status === 'looking' || drawStore.status === 'generating') return
 
   // On desktop, toggle recording on click
   if (!isMobile.value) {
@@ -77,24 +77,25 @@ function drawWaveform() {
   const ctx = canvas.getContext('2d')
   if (!ctx) return
 
-  const level = drawStore.audioLevel || 0
+  const audioData = drawStore.audioData || []
   const W = canvas.width
   const H = canvas.height
-  const gap = 3
-  const barW = (W - gap * (WAVE_BARS - 1)) / WAVE_BARS
+  const gap = 2
+  const bars = Math.min(audioData.length, WAVE_BARS)
+  const barW = (W - gap * (bars - 1)) / bars
 
   ctx.clearRect(0, 0, W, H)
 
-  for (let i = 0; i < WAVE_BARS; i++) {
-    const phase = (i / WAVE_BARS) * Math.PI * 2 + Date.now() * 0.003
-    const waveFactor = Math.sin(phase) * 0.3 + 0.7
-    const barH = Math.max(4, (level * waveFactor + 0.05) * H * 0.9)
+  for (let i = 0; i < bars; i++) {
+    const level = audioData[i] || 0
+    // Combine real data with a bit of noise/base height for better look
+    const barH = Math.max(2, level * H * 0.8 + Math.random() * 2)
     const x = i * (barW + gap)
     const y = (H - barH) / 2
 
     const grad = ctx.createLinearGradient(x, y, x, y + barH)
-    grad.addColorStop(0, 'rgba(139, 92, 246, 0.9)')
-    grad.addColorStop(1, 'rgba(99, 102, 241, 0.6)')
+    grad.addColorStop(0, 'rgba(139, 92, 246, 1)')
+    grad.addColorStop(1, 'rgba(99, 102, 241, 0.8)')
 
     ctx.fillStyle = grad
     ctx.beginPath()
@@ -124,12 +125,12 @@ function drawWaveform() {
 
       <!-- Glass button -->
       <button
-        class="relative w-20 h-20 lg:w-24 lg:h-24 rounded-full flex items-center justify-center transition-all duration-500 group disabled:opacity-40 disabled:cursor-not-allowed border-none outline-none"
-        :class="drawStore.status === 'recording'
-          ? 'bg-violet-500 shadow-[0_0_40px_-10px_rgba(139,92,246,0.5)] scale-95'
-          : 'bg-white/90 dark:bg-zinc-800/90 backdrop-blur-2xl shadow-[0_8px_30px_-10px_rgba(0,0,0,0.08)] dark:shadow-none hover:shadow-[0_15px_40px_-10px_rgba(139,92,246,0.15)] hover:scale-105 active:scale-95'"
-        :disabled="drawStore.status === 'recognizing' || drawStore.status === 'generating'"
-        @mousedown="!isMobile && handleButtonDown($event)"
+          class="relative w-20 h-20 lg:w-24 lg:h-24 rounded-full flex items-center justify-center transition-all duration-500 group disabled:opacity-40 disabled:cursor-not-allowed border-none outline-none"
+          :class="drawStore.status === 'recording'
+            ? 'bg-violet-500 shadow-[0_0_40px_-10px_rgba(139,92,246,0.5)] scale-95'
+            : 'bg-white/90 dark:bg-zinc-800/90 backdrop-blur-2xl shadow-[0_8px_30px_-10px_rgba(0,0,0,0.08)] dark:shadow-none hover:shadow-[0_15px_40px_-10px_rgba(139,92,246,0.15)] hover:scale-105 active:scale-95'"
+          :disabled="drawStore.status === 'recognizing' || drawStore.status === 'thinking' || drawStore.status === 'looking' || drawStore.status === 'generating'"
+          @mousedown="!isMobile && handleButtonDown($event)"
         @mouseup="!isMobile && handleButtonUp($event)"
         @mouseleave="!isMobile && handleButtonUp($event)"
         @touchstart.prevent="isMobile && handleButtonDown($event)"
@@ -167,41 +168,37 @@ function drawWaveform() {
         </div>
 
         <!-- Recording State (Waveform + HUD) -->
-        <div v-else-if="drawStore.status === 'recording'" key="recording" class="flex flex-col items-center gap-2">
-          <!-- Waveform canvas -->
-          <div class="h-8 flex items-center justify-center">
-            <canvas
-              ref="canvasRef"
-              width="140"
-              height="32"
-              class="rounded-full scale-90 lg:scale-100"
-            ></canvas>
-          </div>
-
+        <div v-else-if="drawStore.status === 'recording'" key="recording" class="flex flex-col items-center gap-3 w-full">
           <!-- Recording HUD -->
-          <div class="flex flex-col items-center gap-1.5">
-            <div class="flex flex-col items-center gap-0.5">
-              <div class="flex items-center gap-1.5">
+          <div class="flex flex-col items-center gap-3 w-full px-4">
+            <!-- Top: Status & Time (Centered) -->
+            <div class="flex flex-col items-center">
+              <div class="flex items-center gap-1.5 mb-1">
                 <div class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></div>
-                <span class="text-[10px] font-black text-violet-600 dark:text-violet-400 uppercase tracking-[0.15em]">录音中</span>
+                <span class="text-[10px] font-black text-violet-600 dark:text-violet-400 uppercase tracking-[0.2em]">正在倾听</span>
               </div>
-              <span class="text-sm font-mono font-bold text-gray-700 dark:text-gray-200 tabular-nums">{{ formattedDuration }}</span>
+              <span class="text-2xl font-mono font-black text-gray-800 dark:text-gray-100 tabular-nums">{{ formattedDuration }}</span>
             </div>
 
-            <!-- Progress bar -->
-            <div class="w-36 h-1.5 rounded-full bg-gray-100 dark:bg-zinc-800 overflow-hidden shadow-inner">
+            <!-- Bottom: Real-time Waveform (Centered) -->
+            <div class="flex items-end justify-center gap-[3px] h-10 w-full">
               <div
-                class="h-full bg-gradient-to-r from-violet-500 to-indigo-500 transition-all duration-300 ease-out shadow-[0_0_8px_rgba(139,92,246,0.5)]"
-                :style="{ width: `${progress}%` }"
+                v-for="(val, i) in drawStore.audioData.slice(0, 24)"
+                :key="i"
+                class="w-1.5 rounded-full transition-all duration-150"
+                :style="{ 
+                  height: `${Math.max(4, val * 36)}px`,
+                  backgroundColor: (i / 24) * 100 <= progress ? 'var(--vp-primary)' : 'rgba(156, 163, 175, 0.2)'
+                }"
               ></div>
             </div>
 
             <!-- Status text/hint -->
             <p 
-              class="text-[10px] font-black animate-pulse uppercase tracking-widest mt-1"
-              :class="drawStore.isRetry ? 'text-amber-500' : 'text-violet-500'"
+              v-if="drawStore.duration > 1500"
+              class="text-[10px] font-bold text-gray-400 dark:text-zinc-500 animate-in fade-in slide-in-from-bottom-1 tracking-wide"
             >
-              {{ drawStore.isRetry ? '请重新说一次...' : '正在倾听...' }}
+              {{ drawStore.fullVoiceMode ? '停止说话或松开以完成' : '再次点击或松开以结束' }}
             </p>
           </div>
         </div>
@@ -217,6 +214,11 @@ function drawWaveform() {
         <div v-else-if="drawStore.status === 'thinking'" key="thinking" class="flex flex-col items-center gap-3 py-4">
           <div class="i-svg-spinners-blocks-shuffle-3 icon text-2xl text-violet-500"></div>
           <p class="text-[10px] font-black text-gray-400 uppercase tracking-widest">AI 正在思考...</p>
+        </div>
+
+        <div v-else-if="drawStore.status === 'looking'" key="looking" class="flex flex-col items-center gap-3 py-4">
+          <div class="i-carbon-view-filled icon text-2xl text-violet-500 animate-pulse"></div>
+          <p class="text-[10px] font-black text-violet-500 uppercase tracking-widest animate-pulse">正在看图中...</p>
         </div>
 
         <div v-else-if="drawStore.status === 'generating'" key="generating" class="flex flex-col items-center gap-3 py-4">

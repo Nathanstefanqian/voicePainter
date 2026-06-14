@@ -1,4 +1,7 @@
-import { defineConfig, presetUno, presetAttributify, presetIcons } from 'unocss'
+import { defineConfig } from 'unocss'
+import presetUno from '@unocss/preset-uno'
+import presetAttributify from '@unocss/preset-attributify'
+import presetIcons from '@unocss/preset-icons'
 
 export default defineConfig({
   presets: [
@@ -11,6 +14,31 @@ export default defineConfig({
         'vertical-align': 'middle',
       },
     }),
+  ],
+  safelist: [
+    'i-carbon-paint-brush',
+    'i-carbon-email',
+    'i-carbon-password',
+    'i-carbon-view',
+    'i-carbon-view-off',
+    'i-carbon-checkmark-filled',
+    'i-carbon-close-filled',
+    'i-carbon-warning-filled',
+    'i-carbon-information-filled',
+    'i-carbon-close',
+    'i-svg-spinners-90-ring-with-ball',
+    'i-carbon-send-filled',
+    'i-carbon-image',
+    'i-carbon-trash-can',
+    'i-carbon-copy',
+    'i-carbon-renew',
+    'i-carbon-microphone',
+    'i-carbon-microphone-filled',
+    'i-carbon-settings',
+    'i-carbon-user-avatar',
+    'i-carbon-logout',
+    'i-carbon-moon',
+    'i-carbon-sun',
   ],
   shortcuts: {
     'btn': 'px-4 py-2 rounded-xl font-semibold transition-all cursor-pointer select-none',

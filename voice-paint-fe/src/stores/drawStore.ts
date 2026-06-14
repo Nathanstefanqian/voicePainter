@@ -1,7 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
-export type DrawStatus = 'idle' | 'recording' | 'recognizing' | 'thinking' | 'generating' | 'done' | 'error'
+export type DrawStatus = 'idle' | 'recording' | 'recognizing' | 'thinking' | 'looking' | 'generating' | 'done' | 'error'
 export type AsrProvider = 'volc' | 'tencent'
 
 export interface ImageRecord {
@@ -39,14 +39,21 @@ export const useDrawStore = defineStore('draw', () => {
   const errorMsg = ref<string>('')
   const duration = ref(0)
   const audioLevel = ref(0)
+  const audioData = ref<number[]>([])
   const fullVoiceMode = ref(false)
+  const enableSound = ref(true)
 
   const isProcessing = computed(() =>
     status.value === 'recording' || 
     status.value === 'recognizing' || 
     status.value === 'thinking' || 
+    status.value === 'looking' ||
     status.value === 'generating',
   )
+
+  function setAudioData(data: number[]) {
+    audioData.value = data
+  }
 
   function setFullVoiceMode(mode: boolean) {
     fullVoiceMode.value = mode
@@ -134,6 +141,7 @@ export const useDrawStore = defineStore('draw', () => {
 
   function setDuration(d: number) { duration.value = d }
   function setAudioLevel(l: number) { audioLevel.value = l }
+  function setEnableSound(enabled: boolean) { enableSound.value = enabled }
 
   return {
     currentImage,
@@ -145,10 +153,13 @@ export const useDrawStore = defineStore('draw', () => {
     errorMsg,
     duration,
     audioLevel,
+    audioData,
     fullVoiceMode,
+    enableSound,
     isProcessing,
     setStatus,
     setFullVoiceMode,
+    setEnableSound,
     setCurrentImage,
     addToHistory,
     setImageHistory,
@@ -163,6 +174,7 @@ export const useDrawStore = defineStore('draw', () => {
     clearChat,
     setDuration,
     setAudioLevel,
+    setAudioData,
     setIsRetry,
     removeFromHistory,
     chatMessages,

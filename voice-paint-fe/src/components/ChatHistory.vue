@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick } from 'vue'
 import { useDrawStore, type ChatMessage } from '@/stores/drawStore'
+import { marked } from 'marked'
 
 const drawStore = useDrawStore()
 const scrollContainer = ref<HTMLElement | null>(null)
 const expandedGroups = ref<Set<string>>(new Set())
+const showStatusDelay = ref(false)
+let statusTimeout: number | null = null
 
 const props = defineProps<{
   isExpanded?: boolean
@@ -37,6 +40,12 @@ const groupedMessages = computed(() => {
   return groups
 })
 
+const lastMessageRef = ref<HTMLElement | null>(null)
+
+function setLastMessageRef(el: any) {
+  if (el) lastMessageRef.value = el
+}
+
 function toggleGroup(groupName: string) {
   if (expandedGroups.value.has(groupName)) {
     expandedGroups.value.delete(groupName)
@@ -52,6 +61,11 @@ function handleSelectOption(option: string) {
 function handleViewImage(url: string) {
   drawStore.setCurrentImage(url)
   emit('view-image', url)
+}
+
+function renderMarkdown(content: string) {
+  const cleanContent = content.replace(/^对话摘要[:：]\s*/, '')
+  return marked.parse(cleanContent)
 }
 
 const activeGroupRef = ref<HTMLElement | null>(null)
@@ -71,6 +85,37 @@ function scrollToActiveTop(behavior: ScrollBehavior = 'smooth') {
   })
 }
 
+// 自动滚动到最新消息并使其居中
+function scrollToLastMessageCentered(behavior: ScrollBehavior = 'smooth') {
+  nextTick(() => {
+    if (scrollContainer.value && lastMessageRef.value) {
+      const container = scrollContainer.value
+      const el = lastMessageRef.value
+      
+      // 计算目标滚动位置，使消息位于容器中央
+      const elTop = el.offsetTop
+      const elHeight = el.offsetHeight
+      const containerHeight = container.offsetHeight
+      
+      const targetScrollTop = elTop - (containerHeight / 2) + (elHeight / 2)
+      
+      // 只有当消息靠近底部时才执行居中滚动
+      const threshold = container.scrollHeight - containerHeight - 150
+      if (container.scrollTop > threshold || container.scrollTop + containerHeight < elTop) {
+        container.scrollTo({
+          top: targetScrollTop,
+          behavior
+        })
+      } else {
+        // 否则只是常规滚动到底部
+        scrollToBottom(behavior)
+      }
+    } else {
+      scrollToBottom(behavior)
+    }
+  })
+}
+
 function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
   nextTick(() => {
     if (scrollContainer.value) {
@@ -81,6 +126,22 @@ function scrollToBottom(behavior: ScrollBehavior = 'smooth') {
     }
   })
 }
+
+watch(() => drawStore.status, (newStatus) => {
+  if (newStatus !== 'idle' && newStatus !== 'error' && newStatus !== 'recording' && newStatus !== 'done') {
+    // 如果已经在计时，先清除
+    if (statusTimeout) clearTimeout(statusTimeout)
+    
+    // 设置 800ms 延迟显示，等待语音识别消息先上屏
+    statusTimeout = window.setTimeout(() => {
+      showStatusDelay.value = true
+      scrollToBottom('smooth')
+    }, 800)
+  } else {
+    if (statusTimeout) clearTimeout(statusTimeout)
+    showStatusDelay.value = false
+  }
+})
 
 // 首次加载和消息变化时滚动
 onMounted(() => {
@@ -95,7 +156,7 @@ watch(() => drawStore.chatMessages.length, (newLen, oldLen) => {
     if (isFirstActive) {
       scrollToActiveTop('smooth')
     } else {
-      scrollToBottom('smooth')
+      scrollToLastMessageCentered('smooth')
     }
   }
 })
@@ -187,12 +248,12 @@ watch(() => drawStore.chatMessages.length, (newLen, oldLen) => {
               </div>
               <!-- Standard Message Bubble (No opacity desaturation) -->
               <div 
-                class="max-w-[90%] px-3.5 py-2.5 rounded-2xl text-[13px] font-medium leading-relaxed break-words whitespace-pre-wrap text-left"
+                class="markdown-content max-w-[90%] px-3.5 py-2.5 rounded-2xl text-[13px] font-medium leading-relaxed break-words text-left"
                 :class="msg.role === 'user' 
                   ? 'bg-gray-100 dark:bg-zinc-800 text-gray-600 dark:text-zinc-300 rounded-tr-sm' 
                   : 'bg-gray-50/30 dark:bg-zinc-900/30 text-gray-500 dark:text-zinc-400 rounded-tl-sm border border-gray-100/50 dark:border-zinc-800/50'"
+                v-html="renderMarkdown(msg.content)"
               >
-                {{ msg.content.replace(/^对话摘要[:：]\s*/, '') }}
               </div>
             </div>
           </div>
@@ -201,8 +262,9 @@ watch(() => drawStore.chatMessages.length, (newLen, oldLen) => {
         <!-- Active Chat Content -->
         <div v-else ref="activeGroupRef" class="space-y-6 pt-2">
           <div 
-            v-for="msg in group.messages" 
+            v-for="(msg, mIdx) in group.messages" 
             :key="msg.id"
+            :ref="mIdx === group.messages.length - 1 ? setLastMessageRef : undefined"
             class="flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2 duration-500"
             :class="msg.role === 'user' ? 'items-end' : 'items-start'"
           >
@@ -221,12 +283,12 @@ watch(() => drawStore.chatMessages.length, (newLen, oldLen) => {
 
             <!-- Message Bubble -->
             <div 
-              class="max-w-[90%] px-3.5 py-2.5 rounded-2xl text-[13px] font-medium leading-relaxed break-words whitespace-pre-wrap text-left transition-all"
+              class="markdown-content max-w-[90%] px-3.5 py-2.5 rounded-2xl text-[13px] font-medium leading-relaxed break-words text-left transition-all"
               :class="msg.role === 'user' 
                 ? 'bg-[var(--vp-primary)] text-white rounded-tr-sm shadow-md shadow-violet-500/10' 
                 : 'bg-gray-50/30 dark:bg-zinc-800/30 text-gray-700 dark:text-zinc-200 rounded-tl-sm shadow-sm border border-gray-100/50 dark:border-zinc-700/50'"
             >
-              {{ msg.content.replace(/^对话摘要[:：]\s*/, '') }}
+              <div v-html="renderMarkdown(msg.content)"></div>
               
               <!-- Completeness Progress Bar -->
               <div v-if="msg.completeness !== undefined && msg.completeness > 0" class="mt-3 pt-3 border-t border-gray-100 dark:border-zinc-700">
@@ -279,6 +341,80 @@ watch(() => drawStore.chatMessages.length, (newLen, oldLen) => {
           </div>
         </div>
       </template>
-    </div>
-  </div>
-</template>
+
+      <!-- AI Status Indicator -->
+      <Transition name="fade-status">
+        <div 
+          v-if="showStatusDelay && drawStore.status !== 'idle' && drawStore.status !== 'error' && drawStore.status !== 'recording' && drawStore.status !== 'done'"
+          class="flex flex-col gap-2 items-start"
+        >
+        <div class="flex items-center gap-2 mb-1 px-1">
+          <span class="text-[9px] font-black uppercase tracking-tighter text-gray-400">
+            VoicePaint
+          </span>
+          <div class="flex gap-0.5">
+            <div class="w-1 h-1 rounded-full bg-violet-500 animate-bounce" style="animation-delay: 0s"></div>
+            <div class="w-1 h-1 rounded-full bg-violet-500 animate-bounce" style="animation-delay: 0.2s"></div>
+            <div class="w-1 h-1 rounded-full bg-violet-500 animate-bounce" style="animation-delay: 0.4s"></div>
+          </div>
+        </div>
+
+        <div class="bg-gray-50/50 dark:bg-zinc-800/30 px-3.5 py-2.5 rounded-2xl rounded-tl-sm border border-dashed border-violet-500/30 flex items-center gap-3">
+          <div class="relative flex items-center justify-center">
+            <div class="absolute inset-0 rounded-full border border-violet-500/20 animate-ping"></div>
+            <div class="relative w-5 h-5 rounded-full bg-violet-500/10 flex items-center justify-center">
+              <div v-if="drawStore.status === 'recognizing'" class="i-carbon-voice-activate text-xs text-violet-500 animate-pulse"></div>
+              <div v-else-if="drawStore.status === 'thinking'" class="i-carbon-ai-status-complete text-xs text-violet-500 animate-spin-slow"></div>
+              <div v-else-if="drawStore.status === 'generating'" class="i-carbon-paint-brush text-xs text-violet-500 animate-pulse"></div>
+            </div>
+          </div>
+          
+          <div class="flex flex-col">
+            <span class="text-[11px] font-black text-violet-500 uppercase tracking-widest">
+              {{ 
+                drawStore.status === 'recognizing' ? '正在识别语音' : 
+                drawStore.status === 'thinking' ? '正在分析意图' : 
+                drawStore.status === 'generating' ? '正在绘制图像' : '正在响应'
+              }}
+            </span>
+            <span class="text-[9px] text-gray-400 dark:text-zinc-500 font-medium">
+              {{ 
+                drawStore.status === 'recognizing' ? 'ASR 语音转文字...' : 
+                drawStore.status === 'thinking' ? 'DeepSeek-V3 思考中...' : 
+                drawStore.status === 'generating' ? 'Seedream 构建画面...' : '请稍候...'
+              }}
+            </span></div>
+           </div>
+         </div>
+       </Transition>
+     </div>
+   </div>
+ </template><style scoped>
+.markdown-content :deep(p) {
+  margin: 0;
+}
+.markdown-content :deep(p:not(:last-child)) {
+  margin-bottom: 0.5em;
+}
+.markdown-content :deep(strong) {
+  font-weight: 800;
+}
+.markdown-content :deep(ul), .markdown-content :deep(ol) {
+  margin: 0.5em 0;
+  padding-left: 1.25em;
+}
+.markdown-content :deep(li) {
+  margin-bottom: 0.25em;
+}
+
+/* AI Status Fade Transition */
+.fade-status-enter-active,
+.fade-status-leave-active {
+  transition: all 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.fade-status-enter-from,
+.fade-status-leave-to {
+  opacity: 0;
+  transform: translateY(10px);
+}
+</style>

@@ -1,15 +1,20 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { storeToRefs } from 'pinia'
 import { useAuthStore } from '@/stores/authStore'
+import { useDrawStore } from '@/stores/drawStore'
 import { useToast } from '@/composables/useToast'
 import UserSettingsDialog from './UserSettingsDialog.vue'
 
 const router = useRouter()
 const authStore = useAuthStore()
+const drawStore = useDrawStore()
+const { fullVoiceMode } = storeToRefs(drawStore)
 const { showToast } = useToast()
 
 const showSettings = ref(false)
+const isFullscreen = ref(false)
 type Theme = 'light' | 'dark' | 'forest'
 const theme = ref<Theme>('light')
 
@@ -21,7 +26,24 @@ onMounted(() => {
   } else if (document.documentElement.classList.contains('dark')) {
     theme.value = 'dark'
   }
+
+  // Listen for fullscreen changes
+  document.addEventListener('fullscreenchange', () => {
+    isFullscreen.value = !!document.fullscreenElement
+  })
 })
+
+function toggleFullscreen() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch(err => {
+      showToast(`无法开启全屏: ${err.message}`, 'error')
+    })
+  } else {
+    if (document.exitFullscreen) {
+      document.exitFullscreen()
+    }
+  }
+}
 
 function toggleTheme() {
   const themes: Theme[] = ['light', 'dark', 'forest']
@@ -39,6 +61,12 @@ function toggleTheme() {
   
   theme.value = nextTheme
   localStorage.setItem('theme', nextTheme)
+}
+
+function toggleFullVoiceMode() {
+  const newMode = !fullVoiceMode.value
+  drawStore.setFullVoiceMode(newMode)
+  showToast(newMode ? '全语音模式已开启' : '全语音模式已关闭', 'info')
 }
 
 async function handleLogout() {
@@ -65,6 +93,27 @@ async function handleLogout() {
     </div>
 
     <div class="flex items-center gap-2 lg:gap-3">
+      <!-- Full Voice Mode Toggle -->
+      <button
+        v-if="authStore.user"
+        @click="toggleFullVoiceMode"
+        class="group relative flex items-center gap-2 px-3 h-9 lg:h-10 rounded-xl lg:rounded-2xl transition-all duration-300 border-none outline-none active:scale-95"
+        :class="fullVoiceMode ? 'bg-violet-500/10 text-violet-500' : 'bg-gray-100/50 dark:bg-zinc-800/50 text-gray-400 dark:text-zinc-500 hover:bg-gray-100 dark:hover:bg-zinc-800'"
+        title="全语音模式"
+      >
+        <div 
+          class="i-carbon-voice-activate icon text-base lg:text-lg transition-transform duration-500"
+          :class="{ 'scale-110 rotate-12': fullVoiceMode }"
+        ></div>
+        <span class="hidden md:inline text-[11px] font-black uppercase tracking-wider">全语音模式</span>
+        
+        <!-- Status Dot -->
+        <div 
+          v-if="fullVoiceMode"
+          class="absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full bg-violet-500 border-2 border-white dark:border-zinc-950 animate-pulse"
+        ></div>
+      </button>
+
       <!-- Theme toggle -->
       <button
         @click="toggleTheme"
@@ -80,6 +129,15 @@ async function handleLogout() {
             'icon'
           ]"
         ></div>
+      </button>
+
+      <!-- Fullscreen toggle -->
+      <button 
+        @click="toggleFullscreen"
+        class="w-9 h-9 lg:w-10 lg:h-10 rounded-xl lg:rounded-2xl bg-gray-100/50 dark:bg-zinc-800/50 hover:bg-gray-100 dark:hover:bg-zinc-800 flex items-center justify-center text-gray-500 dark:text-zinc-400 transition-all active:scale-90 border-none"
+        :title="isFullscreen ? '退出全屏' : '全屏模式'"
+      >
+        <div :class="isFullscreen ? 'i-carbon-minimize' : 'i-carbon-maximize'" class="icon text-lg"></div>
       </button>
 
       <template v-if="authStore.user">

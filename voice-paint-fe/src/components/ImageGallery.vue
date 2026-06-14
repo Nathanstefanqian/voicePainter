@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, onMounted } from 'vue'
 import { useDrawStore, type ImageRecord } from '@/stores/drawStore'
 import { useToast } from '@/composables/useToast'
+import { deleteImage, batchDeleteImages } from '@/api/draw'
 
 const drawStore = useDrawStore()
 const { showToast } = useToast()
@@ -49,14 +50,18 @@ async function handleConfirmedDelete() {
   try {
     if (isBatchMode.value && selectedImagesForBatch.value.size > 0) {
       // 批量删除
-      for (const id of selectedImagesForBatch.value) {
+      const idsToDelete = Array.from(selectedImagesForBatch.value)
+      await batchDeleteImages(idsToDelete)
+      
+      for (const id of idsToDelete) {
         drawStore.removeFromHistory(id)
       }
-      showToast(`已删除 ${selectedImagesForBatch.value.size} 张图片`, 'success')
+      showToast(`已删除 ${idsToDelete.length} 张图片`, 'success')
       isBatchMode.value = false
       selectedImagesForBatch.value.clear()
     } else if (imageToDelete.value) {
       // 单个删除
+      await deleteImage(imageToDelete.value)
       drawStore.removeFromHistory(imageToDelete.value)
       showToast('图片已删除', 'success')
       if (selectedGroup.value && showGroupModal.value) {
@@ -69,6 +74,7 @@ async function handleConfirmedDelete() {
       }
     }
   } catch (error: any) {
+    console.error('Delete error:', error)
     showToast('删除失败', 'error')
   } finally {
     showDeleteConfirm.value = false
@@ -124,6 +130,14 @@ function selectImage(url: string) {
 }
 
 
+
+function handleImageError(e: Event, img: ImageRecord) {
+  const target = e.target as HTMLImageElement
+  if (target) {
+    target.src = 'https://via.placeholder.com/512x512.png?text=Image+Load+Failed'
+    target.classList.add('grayscale', 'opacity-50')
+  }
+}
 
 function handleImageLoad(e: Event) {
   const target = e.target as HTMLImageElement
@@ -244,6 +258,7 @@ function handleImageLoad(e: Event) {
                 decoding="async"
                 class="absolute inset-0 w-full h-full object-cover group-hover/stack:scale-110 transition-transform duration-700 opacity-0"
                 @load="handleImageLoad"
+                @error="(e) => handleImageError(e, group.root)"
               />
               
               <!-- Badge for multiple versions -->
@@ -313,7 +328,11 @@ function handleImageLoad(e: Event) {
                     class="group relative aspect-square rounded-[2rem] overflow-hidden cursor-pointer ring-4 transition-all duration-500"
                     :class="drawStore.currentImage === selectedGroup.root.imageUrl ? 'ring-violet-500 shadow-2xl' : 'ring-transparent hover:ring-violet-500/30'"
                   >
-                    <img :src="selectedGroup.root.imageUrl" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                    <img 
+                      :src="selectedGroup.root.imageUrl" 
+                      class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                      @error="(e) => handleImageError(e, selectedGroup!.root)"
+                    />
                     <div class="absolute bottom-4 left-4 px-3 py-1.5 rounded-xl bg-black/60 backdrop-blur-md text-[10px] font-black text-white uppercase tracking-[0.2em] shadow-lg">初始版本</div>
                   </div>
                   <div class="px-2">
@@ -329,7 +348,11 @@ function handleImageLoad(e: Event) {
                     class="group relative aspect-square rounded-[2rem] overflow-hidden cursor-pointer ring-4 transition-all duration-500"
                     :class="drawStore.currentImage === child.imageUrl ? 'ring-violet-500 shadow-2xl' : 'ring-transparent hover:ring-violet-500/30'"
                   >
-                    <img :src="child.imageUrl" class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" />
+                    <img 
+                      :src="child.imageUrl" 
+                      class="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110" 
+                      @error="(e) => handleImageError(e, child)"
+                    />
                     <div class="absolute bottom-4 left-4 px-3 py-1.5 rounded-xl bg-violet-600/80 backdrop-blur-md text-[10px] font-black text-white uppercase tracking-[0.2em] shadow-lg">修改版本 {{ selectedGroup.children.length - idx }}</div>
                     
                     <button 

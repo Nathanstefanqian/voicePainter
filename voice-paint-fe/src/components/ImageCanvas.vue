@@ -8,7 +8,7 @@ import ConfirmModal from '@/components/ConfirmModal.vue'
 const drawStore = useDrawStore()
 const { showToast } = useToast()
 
-const emit = defineEmits(['request-start-recording'])
+const emit = defineEmits(['request-start-recording', 'request-stop-recording'])
 
 const idleCanvasRef = ref<HTMLCanvasElement | null>(null)
 let idleAnimFrame: number | null = null
@@ -35,6 +35,7 @@ interface IdleParticle {
 }
 
 const idleParticles: IdleParticle[] = []
+let lastFrameTime = 0
 
 function initIdleParticles(w: number, h: number) {
   idleParticles.length = 0
@@ -45,7 +46,7 @@ function initIdleParticles(w: number, h: number) {
 
 function spawnIdleParticle(x: number, y: number, _w: number, _h: number): IdleParticle {
   const angle = Math.random() * Math.PI * 2
-  const speed = 0.3 + Math.random() * 0.8
+  const speed = 0.5 + Math.random() * 1.0
   return {
     x, y,
     vx: Math.cos(angle) * speed,
@@ -59,11 +60,17 @@ function spawnIdleParticle(x: number, y: number, _w: number, _h: number): IdlePa
   }
 }
 
-function drawIdle() {
+function drawIdle(timestamp: number = 0) {
   const canvas = idleCanvasRef.value
   if (!canvas) return
   const ctx = canvas.getContext('2d')
   if (!ctx) return
+
+  // Calculate delta time for consistent speed across different frame rates
+  if (!lastFrameTime) lastFrameTime = timestamp
+  const deltaTime = Math.min(timestamp - lastFrameTime, 64) / 16.67 // normalize to ~60fps
+  lastFrameTime = timestamp
+
   const w = canvas.width
   const h = canvas.height
   ctx.clearRect(0, 0, w, h)
@@ -73,7 +80,7 @@ function drawIdle() {
 
   for (let i = idleParticles.length - 1; i >= 0; i--) {
     const p = idleParticles[i]
-    p.life++
+    p.life += deltaTime
 
     // Attraction toward mouse when close
     const dx = mx - p.x
@@ -82,24 +89,26 @@ function drawIdle() {
     const ATTRACT_DIST = 160
     if (dist < ATTRACT_DIST && dist > 0) {
       const force = (ATTRACT_DIST - dist) / ATTRACT_DIST
-      p.vx += (dx / dist) * force * 0.3
-      p.vy += (dy / dist) * force * 0.3
+      // Apply delta time to forces
+      p.vx += (dx / dist) * force * 0.4 * deltaTime
+      p.vy += (dy / dist) * force * 0.4 * deltaTime
       p.attracted = true
     } else {
       p.attracted = false
     }
 
-    // Gentle velocity damping
-    p.vx *= 0.96
-    p.vy *= 0.96
+    // Gentle velocity damping - adjusted for deltaTime
+    const friction = Math.pow(0.94, deltaTime)
+    p.vx *= friction
+    p.vy *= friction
 
-    // Keep moving
-    const baseAngle = Math.random() * 0.15 - 0.075
-    p.vx += baseAngle
-    p.vy += Math.sin(p.life * 0.02) * 0.01
+    // Gentle random movement
+    p.vx += (Math.random() * 0.1 - 0.05) * deltaTime
+    p.vy += Math.sin(p.life * 0.05) * 0.02 * deltaTime
 
-    p.x += p.vx
-    p.y += p.vy
+    // Position update based on velocity and delta time
+    p.x += p.vx * deltaTime
+    p.y += p.vy * deltaTime
 
     // Fade in/out by life
     const fadeIn = Math.min(p.life / 40, 1)
@@ -124,7 +133,7 @@ function drawIdle() {
     ctx.fill()
 
     // Respawn when too old or out of bounds
-    if (p.life > p.maxLife || p.x < -20 || p.x > w + 20 || p.y < -20 || p.y > h + 20) {
+    if (p.life > p.maxLife || p.x < -40 || p.x > w + 40 || p.y < -40 || p.y > h + 40) {
       idleParticles.splice(i, 1)
       idleParticles.push(spawnIdleParticle(Math.random() * w, Math.random() * h, w, h))
     }
@@ -271,7 +280,7 @@ function startProgress() {
 }
 
 watch(() => drawStore.status, async (status) => {
-  if (status === 'generating' || status === 'thinking') {
+  if (status === 'generating') {
     startProgress()
     await nextTick()
     const canvas = loadingCanvasRef.value
@@ -412,7 +421,7 @@ async function confirmDelete() {
       ]"
       @mousemove="onMouseMove"
       @mouseleave="onMouseLeave"
-      @click="(!drawStore.currentImage || drawStore.status === 'recording') && drawStore.status !== 'generating' && emit('request-start-recording')"
+      @click="drawStore.status === 'recording' ? emit('request-stop-recording') : (!drawStore.currentImage && (drawStore.status === 'idle' || drawStore.status === 'error') && emit('request-start-recording'))"
     >
       <img
         v-if="drawStore.currentImage"
@@ -420,47 +429,11 @@ async function confirmDelete() {
         alt="Generated image"
         class="absolute inset-0 w-full h-full object-contain p-2 lg:p-3 transition-all duration-500"
         :class="[
-          (
-            drawStore.status === 'generating' || 
-            (!drawStore.fullVoiceMode && (drawStore.status === 'recording' || drawStore.status === 'thinking' || drawStore.status === 'recognizing'))
-          ) 
+          drawStore.status === 'generating'
             ? 'opacity-40 blur-md scale-95' 
             : 'opacity-100 blur-0 scale-100'
         ]"
       />
-
-      <!-- Recording Overlay -->
-      <Transition name="fade">
-        <div 
-          v-if="drawStore.status === 'recording' && !(drawStore.fullVoiceMode && drawStore.currentImage)" 
-          class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/10 dark:bg-white/5 backdrop-blur-sm pointer-events-none"
-        >
-          <div class="relative w-48 h-48 flex items-center justify-center">
-            <!-- Dynamic ripple waves -->
-            <div class="absolute inset-0 rounded-full border-2 border-violet-500/20 animate-ping-slow"></div>
-            <div class="absolute inset-8 rounded-full border-2 border-violet-500/30 animate-ping-slow" style="animation-delay: 0.5s"></div>
-            <div class="absolute inset-16 rounded-full border-2 border-violet-500/40 animate-ping-slow" style="animation-delay: 1s"></div>
-            
-            <!-- Central recording orb -->
-            <div class="relative w-20 h-20 rounded-full bg-gradient-to-br from-violet-500 to-fuchsia-500 shadow-2xl shadow-violet-500/50 flex items-center justify-center">
-              <div class="i-carbon-microphone text-3xl text-white animate-pulse"></div>
-            </div>
-          </div>
-          
-          <div class="mt-8 flex flex-col items-center gap-2">
-            <span class="text-xl font-black text-violet-500 uppercase tracking-[0.3em] animate-pulse">正在聆听</span>
-            <div class="flex gap-1.5">
-              <div v-for="i in 5" :key="i" 
-                class="w-1 bg-violet-500/60 rounded-full animate-voice-bar"
-                :style="{ 
-                  height: `${12 + Math.random() * 24}px`,
-                  animationDelay: `${i * 0.1}s`
-                }"
-              ></div>
-            </div>
-          </div>
-        </div>
-      </Transition>
 
       <!-- Idle particle canvas -->
       <canvas
@@ -469,25 +442,6 @@ async function confirmDelete() {
         :class="{ 'opacity-0': !!drawStore.currentImage || drawStore.status === 'generating' }"
         style="transition: opacity 0.5s;"
       ></canvas>
-
-      <!-- Thinking/Recognizing Overlay -->
-      <Transition name="fade">
-        <div 
-          v-if="(drawStore.status === 'thinking' || drawStore.status === 'recognizing') && !(drawStore.fullVoiceMode && drawStore.currentImage)" 
-          class="absolute inset-0 z-30 flex flex-col items-center justify-center bg-black/10 dark:bg-white/5 backdrop-blur-md pointer-events-none"
-        >
-          <div class="relative w-32 h-32 flex items-center justify-center">
-            <div class="absolute inset-0 rounded-full border-2 border-violet-500/20 animate-spin-slow"></div>
-            <div class="relative w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500/20 to-fuchsia-500/20 flex items-center justify-center">
-              <div class="i-carbon-ai-status-complete text-3xl text-violet-500 animate-pulse"></div>
-            </div>
-          </div>
-          <div class="mt-4 flex flex-col items-center gap-1">
-            <span class="text-xs font-black text-violet-500 uppercase tracking-[0.3em]">正在分析意图</span>
-            <span class="text-[10px] text-gray-400 dark:text-zinc-500 font-medium">DeepSeek-V3 思考中...</span>
-          </div>
-        </div>
-      </Transition>
 
       <!-- Particle Loading Overlay -->
       <Transition name="fade">
@@ -514,7 +468,7 @@ async function confirmDelete() {
 
       <!-- Empty state -->
       <div
-        v-if="!drawStore.currentImage && (drawStore.status === 'idle' || drawStore.status === 'error')"
+        v-if="!drawStore.currentImage && drawStore.status !== 'generating'"
         class="absolute inset-0 z-10 flex flex-col items-center justify-center gap-5 select-none transition-all duration-500 group-hover/canvas:scale-110"
       >
         <!-- Animated gradient orb -->
@@ -573,14 +527,5 @@ async function confirmDelete() {
 }
 .animate-ping-slow {
   animation: ping-slow 2s cubic-bezier(0, 0, 0.2, 1) infinite;
-}
-
-@keyframes voice-bar {
-  0%, 100% { transform: scaleY(1); }
-  50% { transform: scaleY(1.5); }
-}
-.animate-voice-bar {
-  animation: voice-bar 0.6s ease-in-out infinite;
-  transform-origin: bottom;
 }
 </style>

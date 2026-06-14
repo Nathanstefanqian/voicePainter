@@ -31,8 +31,8 @@ async function handleLogin() {
 }
 
 async function handleQuickLogin() {
-  email.value = 'fungleo@example.com'
-  password.value = 'Password123!'
+  email.value = 'demo@example.com'
+  password.value = 'DemoPassword123!'
   await handleLogin()
 }
 </script>

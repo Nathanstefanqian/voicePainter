@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, watch } from 'vue'
+import { storeToRefs } from 'pinia'
 import { useDrawStore } from '@/stores/drawStore'
 import { useRecorder } from '@/composables/useRecorder'
 import { recognizeVoice } from '@/api/voice'
 import { generateImage, getHistory, recognizeIntent } from '@/api/draw'
 import { getCurrentSession, clearChat as apiClearChat, compressChat as apiCompressChat } from '@/api/session'
 import { useToast } from '@/composables/useToast'
+import { useAudio } from '@/composables/useAudio'
 import VoiceRecorder from '@/components/VoiceRecorder.vue'
-import AsrSwitch from '@/components/AsrSwitch.vue'
 // import StatusIndicator from '@/components/StatusIndicator.vue'
 import ImageCanvas from '@/components/ImageCanvas.vue'
 import ImageGallery from '@/components/ImageGallery.vue'
@@ -18,6 +19,7 @@ const drawStore = useDrawStore()
 const { asrProvider, fullVoiceMode } = storeToRefs(drawStore)
 const { startRecording, stopRecording } = useRecorder()
 const { showToast } = useToast()
+const { playSuccess, playTransition, playStop, playComplete, playClick } = useAudio()
 
 const showClearConfirm = ref(false)
 const showCompressConfirm = ref(false)
@@ -27,10 +29,14 @@ const windowWidth = ref(window.innerWidth)
 const isLeftPanelExpanded = ref(true)
 
 function toggleFullVoiceMode() {
+  playClick()
   const newMode = !fullVoiceMode.value
   drawStore.setFullVoiceMode(newMode)
   showToast(newMode ? '全语音模式已开启' : '全语音模式已关闭', 'info')
-  
+}
+
+// 监听全语音模式变化，处理录音状态的副作用
+watch(fullVoiceMode, (newMode) => {
   if (newMode) {
     if (drawStore.status === 'idle') {
       handleStartRecording()
@@ -45,7 +51,7 @@ function toggleFullVoiceMode() {
       drawStore.setStatus('idle')
     }
   }
-}
+})
 
 async function handleClearChat() {
   isProcessingChat.value = true
@@ -104,8 +110,8 @@ onMounted(async () => {
     const history = await getHistory()
     if (history && history.length > 0) {
       drawStore.setHistory(history)
-      // 刷新后默认展示最新的一张图片，确保语音删除等指令能立即生效
-      drawStore.setCurrentImage(history[0].imageUrl)
+      // 刷新后不默认展示图片，保持空闲状态
+      // drawStore.setCurrentImage(history[0].imageUrl)
     }
   } catch (error) {
     console.error('Failed to restore session:', error)
@@ -158,9 +164,18 @@ async function processUserIntent(text: string) {
       currentImageUrl: drawStore.currentImage || undefined,
     })
 
+    console.log('Intent Result:', intentResult.action)
+
+    // 如果是视觉聊天动作，立即切换到 looking 状态
+    if ((intentResult.action as string) === 'visual_chat') {
+      console.log('Switching to looking status')
+      drawStore.setStatus('looking')
+    }
+
     // 如果是绘图动作，立即切换到 generating 状态
     const isDrawingAction = intentResult.action === 'new' || intentResult.action === 'iterate' || intentResult.action === 'adjust'
     if (isDrawingAction) {
+      playTransition()
       drawStore.setStatus('generating')
     }
 
@@ -193,8 +208,18 @@ async function processUserIntent(text: string) {
       })))
     }
 
-    if (result.action === 'chat' || result.action === 'unknown') {
+    if (result.action === 'chat' || (result.action as string) === 'visual_chat' || result.action === 'unknown') {
       drawStore.setStatus('idle')
+      
+      // 移动端：如果当前在画廊页且收到了模型回复，自动切换到对话记录页
+      if (windowWidth.value < 1024 && activeTab.value === 'gallery') {
+        activeTab.value = 'chat'
+      }
+
+      // 只有当消息看起来像是错误信息时，才显示在底部提示栏
+      if (result.message && (result.message.includes('失败') || result.message.includes('错误') || result.message.includes('抱歉'))) {
+        drawStore.setLastMessage(result.message)
+      }
       if (fullVoiceMode.value) handleStartRecording()
       return
     }
@@ -260,6 +285,7 @@ async function processUserIntent(text: string) {
     }
 
     if (result.action === 'clarify') {
+      playSuccess()
       drawStore.setStatus('idle')
       if (fullVoiceMode.value) handleStartRecording()
       return
@@ -269,6 +295,7 @@ async function processUserIntent(text: string) {
     await new Promise(resolve => setTimeout(resolve, 500))
     
     drawStore.setCurrentImage(result.imageUrl)
+    playComplete()
     drawStore.addToHistory({
       imageId: result.imageId || `img-${Date.now()}`,
       imageUrl: result.imageUrl,
@@ -305,6 +332,7 @@ async function processUserIntent(text: string) {
 async function handleStopRecording(silent: boolean | MouseEvent = false) {
   if (!isRecording.value) return
   isRecording.value = false
+  playStop()
 
   const finalDuration = drawStore.duration
   const blob = await stopRecording()
@@ -348,7 +376,6 @@ async function handleStopRecording(silent: boolean | MouseEvent = false) {
       return
     }
 
-    showToast(`识别: ${asrResult.text}`, 'info')
     drawStore.addChatMessage({
       id: `user-${Date.now()}`,
       role: 'user',
@@ -387,10 +414,9 @@ async function handleStopRecording(silent: boolean | MouseEvent = false) {
         :class="[isLeftPanelExpanded ? 'lg:h-0 lg:opacity-0 lg:pointer-events-none lg:mb-0' : 'lg:mb-6']"
       >
         <div class="w-full flex flex-col gap-3 mb-4">
-          <AsrSwitch class="w-full" />
-          
-          <!-- Full Voice Mode Toggle -->
+          <!-- Full Voice Mode Toggle (Hidden as requested, using header toggle instead) -->
           <button 
+            v-if="false"
             @click="toggleFullVoiceMode"
             class="group w-full flex items-center justify-between p-3 rounded-2xl transition-all duration-300 border"
             :class="[
@@ -461,6 +487,7 @@ async function handleStopRecording(silent: boolean | MouseEvent = false) {
             class="w-2.5 h-2.5 rounded-full transition-all duration-300"
             :class="[
               drawStore.status === 'recording' ? 'bg-red-500 animate-pulse' : 
+              drawStore.status === 'looking' ? 'bg-fuchsia-500 animate-pulse' :
               drawStore.status !== 'idle' ? 'bg-amber-500 animate-spin-slow' : 
               'bg-violet-500 opacity-40'
             ]"
@@ -468,12 +495,17 @@ async function handleStopRecording(silent: boolean | MouseEvent = false) {
           <div class="flex flex-col">
             <span 
               class="text-[10px] font-black uppercase tracking-widest transition-colors duration-300"
-              :class="drawStore.status === 'recording' ? 'text-red-500' : 'text-violet-500'"
+              :class="[
+                drawStore.status === 'recording' ? 'text-red-500' : 
+                drawStore.status === 'looking' ? 'text-fuchsia-500' :
+                'text-violet-500'
+              ]"
             >
               {{ 
                 drawStore.status === 'recording' ? '正在倾听' : 
                 drawStore.status === 'recognizing' ? '正在识别' :
                 drawStore.status === 'thinking' ? '正在思考' :
+                drawStore.status === 'looking' ? '正在看图' :
                 drawStore.status === 'generating' ? '正在绘图' :
                 drawStore.status === 'done' ? '处理完成' :
                 '录音就绪' 
@@ -524,7 +556,10 @@ async function handleStopRecording(silent: boolean | MouseEvent = false) {
 
     <!-- Center: Image display -->
     <div class="h-[40vh] lg:h-auto lg:flex-1 p-3 lg:p-8 overflow-hidden bg-gray-50/50 dark:bg-zinc-950/50 flex flex-col min-w-0">
-      <ImageCanvas @request-start-recording="handleStartRecording" />
+      <ImageCanvas 
+        @request-start-recording="handleStartRecording" 
+        @request-stop-recording="handleStopRecording"
+      />
     </div>
 
     <!-- Right panel: History -->
