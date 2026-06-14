@@ -4,6 +4,8 @@
 >
 > 作品链接：[github.com/Nathanstefanqian/voicePainter](https://github.com/Nathanstefanqian/voicePainter)
 > 体验地址：[https://paint.nathanq.site](https://paint.nathanq.site)
+> Demo 视频：https://video.nathanq.site
+> 产品设计文档：https://doc.nathanq.site
 
 ---
 
